@@ -91,33 +91,20 @@ class GeneratorDataset(Dataset):
         return ex
 
     def collate(self, examples: List[Example]) -> Batch:
-        state = [ex["state"] for ex in examples]
-        tokenized_state = self.tokenizer(
-            state,
+        state_tactic_pairs = [f"$STATE$ = {ex['state']} \n $TACTIC$ = {ex['tactic']}" for ex in examples]
+        tokenized_pairs = self.tokenizer(
+            state_tactic_pairs,
             padding="longest",
             max_length=self.max_inp_seq_len,
             truncation=True,
             return_tensors="pt",
         )
-        tactic = [ex["tactic"] for ex in examples]
-        tokenized_tactic = self.tokenizer(
-            tactic,
-            padding="longest",
-            max_length=self.max_oup_seq_len,
-            truncation=True,
-            return_tensors="pt",
-        )
-        tactic_ids = tokenized_tactic.input_ids
-        tactic_ids[tactic_ids == self.tokenizer.pad_token_id] = -100
 
         batch = {}
-        batch["state"] = state
-        batch["state_ids"] = tokenized_state.input_ids
-        batch["state_mask"] = tokenized_state.attention_mask
-        batch["tactic"] = tactic
-        batch["tactic_ids"] = tactic_ids
-        batch["tactic_mask"] = tokenized_tactic.attention_mask
-
+        batch["state_tactic_pairs"] = state_tactic_pairs
+        batch["pair_ids"] = tokenized_pairs.input_ids
+        batch["pair_mask"] = tokenized_pairs.attention_mask
+        
         # Copy other fields.
         for k in examples[0].keys():
             if k not in batch:
@@ -157,6 +144,7 @@ class GeneratorDataModule(pl.LightningDataModule):
         self.normalize_tactics = normalize_tactics
         self.num_workers = num_workers
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.tokenizer.pad_token = "<pad>"
 
         if preds_path is None:
             logger.info("Without retrieval data")

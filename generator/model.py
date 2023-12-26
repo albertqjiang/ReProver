@@ -8,7 +8,7 @@ import pytorch_lightning as pl
 from torchmetrics import Metric
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, Tuple
-from transformers import T5ForConditionalGeneration, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from common import (
     zip_strict,
@@ -111,7 +111,8 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
             )
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.generator = T5ForConditionalGeneration.from_pretrained(model_name)
+        self.tokenizer.pad_token = "<pad>"
+        self.generator = AutoModelForCausalLM.from_pretrained(model_name)
 
         self.topk_accuracies = dict()
         for k in range(1, num_beams + 1):
@@ -127,14 +128,13 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
 
     def forward(
         self,
-        state_ids: torch.Tensor,
-        state_mask: torch.Tensor,
-        tactic_ids: torch.Tensor,
+        pair_ids: torch.Tensor,
+        pair_mask: torch.Tensor,
     ) -> torch.Tensor:
         return self.generator(
-            input_ids=state_ids,
-            attention_mask=state_mask,
-            labels=tactic_ids,
+            input_ids=pair_ids,
+            attention_mask=pair_mask,
+            labels=pair_ids,
         ).loss
 
     ############
@@ -143,9 +143,8 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
 
     def training_step(self, batch, batch_idx: int):
         loss = self(
-            batch["state_ids"],
-            batch["state_mask"],
-            batch["tactic_ids"],
+            batch["pair_ids"],
+            batch["pair_mask"],
         )
         self.log(
             "loss_train",
@@ -155,7 +154,7 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
             sync_dist=True,
             batch_size=len(batch),
         )
-        self._log_io_texts("train", batch["state_ids"], batch["tactic_ids"])
+        self._log_io_texts("train", batch["pair_ids"])
         return loss
 
     def configure_optimizers(self) -> Dict[str, Any]:
@@ -166,17 +165,11 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
     def _log_io_texts(
         self,
         split: str,
-        state_ids: torch.LongTensor,
-        tactic_ids: torch.LongTensor,
+        pair_ids: torch.LongTensor,
     ) -> None:
         tb = self.logger.experiment
-        inp = self.tokenizer.decode(state_ids[0], skip_special_tokens=True)
-        oup_ids = torch.where(
-            tactic_ids[0] == -100, self.tokenizer.pad_token_id, tactic_ids[0]
-        )
-        oup = self.tokenizer.decode(oup_ids, skip_special_tokens=True)
-        tb.add_text(f"{split}_state", f"```\n{inp}\n```", self.global_step)
-        tb.add_text(f"{split}_tactic", f"`{oup}`", self.global_step)
+        inp = self.tokenizer.decode(pair_ids[0], skip_special_tokens=True)
+        tb.add_text(f"{split}_state_tactic_pairs", f"```\n{inp}\n```", self.global_step)
 
     def on_fit_start(self) -> None:
         if self.logger is not None:
@@ -192,13 +185,13 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
     ##############
 
     def validation_step(self, batch: Dict[str, Any], _) -> None:
-        state_ids = batch["state_ids"]
-        state_mask = batch["state_mask"]
-        tactic_ids = batch["tactic_ids"]
+        pair_ids = batch["pair_ids"]
+        pair_mask = batch["pair_mask"]
 
-        loss = self(state_ids, state_mask, tactic_ids)
+        loss = self(pair_ids, pair_mask)
         self.log(f"loss_val", loss, on_step=False, on_epoch=True, sync_dist=True)
-        self._log_io_texts("val", state_ids, tactic_ids)
+        self._log_io_texts("val", pair_ids)
+        return
 
         # Generate topk tactic candidates via Beam Search.
         output = self.generator.generate(
@@ -296,6 +289,7 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
         theorem_pos: List[Pos],
         num_samples: int,
     ) -> List[List[Tuple[str, float]]]:
+        raise NotImplementedError
         logger.debug(state)
         if self.retriever is not None:
             retrieved_premises, _ = self.retriever.retrieve(
