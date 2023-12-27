@@ -155,6 +155,7 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
             batch_size=len(batch),
         )
         self._log_io_texts("train", batch["pair_ids"])
+        print(loss.item())
         return loss
 
     def configure_optimizers(self) -> Dict[str, Any]:
@@ -191,12 +192,11 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
         loss = self(pair_ids, pair_mask)
         self.log(f"loss_val", loss, on_step=False, on_epoch=True, sync_dist=True)
         self._log_io_texts("val", pair_ids)
-        return
 
         # Generate topk tactic candidates via Beam Search.
         output = self.generator.generate(
-            input_ids=state_ids,
-            attention_mask=state_mask,
+            input_ids=pair_ids,
+            attention_mask=pair_mask,
             max_length=self.max_oup_seq_len,
             num_beams=self.num_beams,
             do_sample=False,
@@ -204,12 +204,14 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
             early_stopping=False,
         )
         output_text = self.tokenizer.batch_decode(output, skip_special_tokens=True)
-        batch_size = state_ids.size(0)
+        batch_size = pair_ids.size(0)
         assert len(output_text) == batch_size * self.num_beams
-        tactics_pred = [
-            output_text[i * self.num_beams : (i + 1) * self.num_beams]
-            for i in range(batch_size)
-        ]
+
+        tactics_pred = []
+        for i in range(batch_size):
+            tactics_pred.append([])
+            for pair in output_text[i * self.num_beams : (i + 1) * self.num_beams]:
+                tactics_pred[-1].append(pair.split("$TACTIC$ = ")[-1])
 
         tb = self.logger.experiment
         msg = "\n".join(tactics_pred[0])

@@ -418,8 +418,6 @@ def get_optimizers(
     """Return an AdamW optimizer with cosine warmup learning rate schedule."""
     strategy = trainer.strategy
 
-    optimizer = DeepSpeedCPUAdam(parameters, lr=lr, adamw_mode=True)
-    """
     if isinstance(strategy, DeepSpeedStrategy):
         if "offload_optimizer" in strategy.config["zero_optimization"]:
             logger.info("Optimizing with DeepSpeedCPUAdam")
@@ -430,7 +428,6 @@ def get_optimizers(
     else:
         logger.info("Optimizing with AdamW")
         optimizer = torch.optim.AdamW(parameters, lr=lr)
-    """
 
     if trainer.max_steps != -1:
         max_steps = trainer.max_steps
