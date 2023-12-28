@@ -155,7 +155,6 @@ class RetrievalAugmentedGenerator(TacticGenerator, pl.LightningModule):
             batch_size=len(batch),
         )
         self._log_io_texts("train", batch["pair_ids"])
-        print(loss.item())
         return loss
 
     def configure_optimizers(self) -> Dict[str, Any]:

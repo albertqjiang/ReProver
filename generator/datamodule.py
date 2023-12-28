@@ -91,7 +91,9 @@ class GeneratorDataset(Dataset):
         return ex
 
     def collate(self, examples: List[Example]) -> Batch:
-        state_tactic_pairs = [f"$STATE$ = {ex['state']} \n $TACTIC$ = {ex['tactic']}" for ex in examples]
+        state_tactic_pairs = [
+            f"$STATE$ = {ex['state']} \n $TACTIC$ = {ex['tactic']}" for ex in examples
+        ]
         tokenized_pairs = self.tokenizer(
             state_tactic_pairs,
             padding="longest",
@@ -104,7 +106,7 @@ class GeneratorDataset(Dataset):
         batch["state_tactic_pairs"] = state_tactic_pairs
         batch["pair_ids"] = tokenized_pairs.input_ids
         batch["pair_mask"] = tokenized_pairs.attention_mask
-        
+
         # Copy other fields.
         for k in examples[0].keys():
             if k not in batch:
